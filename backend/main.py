@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.ai_main import router as ai_router
 from backend.config import get_settings
+from backend.views.auth_routes import router as auth_router
+from backend.views.user_routes import router as user_router
 
 
 def create_app() -> FastAPI:
@@ -19,12 +21,15 @@ def create_app() -> FastAPI:
 	app.add_middleware(
 		CORSMiddleware,
 		allow_origins=settings.cors_allow_origins,
+		allow_origin_regex=settings.cors_allow_origin_regex,
 		allow_credentials=settings.cors_allow_credentials,
 		allow_methods=settings.cors_allow_methods,
 		allow_headers=settings.cors_allow_headers,
 	)
 
 	app.include_router(ai_router, prefix=settings.api_prefix)
+	app.include_router(auth_router, prefix=settings.api_prefix)
+	app.include_router(user_router, prefix=settings.api_prefix)
 
 	@app.get("/", tags=["meta"])
 	def root() -> dict:

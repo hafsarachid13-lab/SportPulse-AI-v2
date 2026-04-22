@@ -1,8 +1,12 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
-psycopg2-binary
+pymysql
 pydantic
+email-validator
+python-dotenv
+python-multipart
+openpyxl
 requests
 beautifulsoup4
 pytest

@@ -6,6 +6,11 @@ import os
 import secrets
 from datetime import UTC, datetime, timedelta
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-in-production")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 

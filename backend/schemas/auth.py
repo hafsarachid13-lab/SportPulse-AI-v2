@@ -1,16 +1,22 @@
+from typing import Literal
+
 from pydantic import BaseModel, EmailStr, Field
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
-    full_name: str | None = None
-    role: str = "Student"
+    username: str | None = Field(default=None, min_length=3, max_length=100)
+    role: Literal["admin", "journaliste"] = "journaliste"
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    username: str | None = Field(default=None, min_length=3, max_length=100)
+    login: str | None = None
+    identifier: str | None = None
     password: str
+    remember_me: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -20,7 +26,7 @@ class TokenResponse(BaseModel):
 
 class AuthUser(BaseModel):
     id: int
+    username: str
     email: EmailStr
-    full_name: str | None = None
-    role: str
+    role: Literal["admin", "journaliste"]
     is_active: bool

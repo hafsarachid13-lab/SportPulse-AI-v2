@@ -16,3 +16,6 @@ class AuthController:
 
     def me(self, db: Session, token: str) -> AuthUser:
         return self.service.me(db, token)
+
+    def logout(self, token: str) -> dict:
+        return self.service.logout(token)

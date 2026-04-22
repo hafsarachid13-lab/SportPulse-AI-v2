@@ -5,6 +5,10 @@ from functools import lru_cache
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 
 def _parse_csv(value: Optional[str]) -> List[str]:
@@ -29,6 +33,7 @@ class Settings(BaseModel):
 	react_vite_origin: str = "http://localhost:5173"
 
 	cors_allow_origins: List[str] = Field(default_factory=list)
+	cors_allow_origin_regex: str | None = None
 	cors_allow_credentials: bool = True
 	cors_allow_methods: List[str] = Field(default_factory=lambda: ["*"])
 	cors_allow_headers: List[str] = Field(default_factory=lambda: ["*"])
@@ -45,6 +50,9 @@ def get_settings() -> Settings:
 
 	cors_methods = _parse_csv(os.getenv("CORS_ALLOW_METHODS")) or ["*"]
 	cors_headers = _parse_csv(os.getenv("CORS_ALLOW_HEADERS")) or ["*"]
+	cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX")
+	if not cors_origin_regex and os.getenv("ENVIRONMENT", "development") == "development":
+		cors_origin_regex = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
 	return Settings(
 		app_name=os.getenv("APP_NAME", "AI News Review API"),
@@ -54,6 +62,7 @@ def get_settings() -> Settings:
 		react_dev_origin=react_dev_origin,
 		react_vite_origin=react_vite_origin,
 		cors_allow_origins=cors_origins,
+		cors_allow_origin_regex=cors_origin_regex,
 		cors_allow_credentials=_parse_bool(os.getenv("CORS_ALLOW_CREDENTIALS"), True),
 		cors_allow_methods=cors_methods,
 		cors_allow_headers=cors_headers,
