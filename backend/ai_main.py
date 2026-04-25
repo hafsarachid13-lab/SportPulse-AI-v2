@@ -7,6 +7,31 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 
+#Temporairement
+from .ai_agent.pipeline import run_scraping_pipeline
+from .services.translate_service import translate_text
+
+
+def main():
+    articles = run_scraping_pipeline()
+
+    for i, article in enumerate(articles[:5], start=1):
+        print("=" * 80)
+        print(f"Article {i}")
+        print("SOURCE :", article.get("source"))
+        print("TITLE  :", article.get("title"))
+        print("URL    :", article.get("article_url"))
+        print("DATE   :", article.get("published_at"))
+        print("TEXT   :", article.get("content", "")[:500])
+        print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
+#Temporairement
+
+
+
 router = APIRouter(tags=["ai"])
 
 
@@ -15,6 +40,9 @@ class NewsArticle(BaseModel):
 	title: str
 	source: str
 	url: str
+	summary: Optional[str] = None
+	image_url: Optional[str] = None
+	importance_score: int = 0
 	published_at: datetime
 	category: str
 
@@ -38,79 +66,67 @@ class ReviewResponse(BaseModel):
 	generated_at: datetime
 
 
+class TranslationRequest(BaseModel):
+    text: str
+    target_lang: str = Field(..., pattern="^(ar|fr|en)$")
+
+
+class TranslationResponse(BaseModel):
+    translated_text: str
+    target_lang: str
+
+
 class AIPipeline:
-	"""Simple orchestrator with stubs for the future production AI pipeline."""
+	"""Orchestrateur relié au pipeline de production IA."""
 
 	def collect_news(self, topic: Optional[str], limit: int) -> List[NewsArticle]:
-		now = datetime.now(timezone.utc)
-		catalog = [
-			NewsArticle(
-				id="news-001",
-				title="Local startup launches new climate sensor",
-				source="Tech Daily",
-				url="https://example.com/news/1",
-				published_at=now,
-				category="technology",
-			),
-			NewsArticle(
-				id="news-002",
-				title="Public transport upgrades announced for 2027",
-				source="City Journal",
-				url="https://example.com/news/2",
-				published_at=now,
-				category="society",
-			),
-			NewsArticle(
-				id="news-003",
-				title="University team publishes AI ethics framework",
-				source="Education Wire",
-				url="https://example.com/news/3",
-				published_at=now,
-				category="ai",
-			),
-		]
-		if topic:
-			filtered = [item for item in catalog if topic.lower() in item.title.lower()]
-			if filtered:
-				return filtered[:limit]
-		return catalog[:limit]
-
-	def preprocess(self, articles: List[NewsArticle]) -> List[dict]:
-		# TODO(team): replace this with normalization, deduplication, and language handling.
-		return [
-			{
-				"id": article.id,
-				"title": article.title,
-				"token_count": len(article.title.split()),
-				"source": article.source,
-			}
-			for article in articles
-		]
-
-	def summarize(self, processed_items: List[dict]) -> str:
-		# TODO(team): connect to an LLM summarizer and prompt templates.
-		if not processed_items:
-			return "No relevant articles were found for this topic."
-		titles = "; ".join(item["title"] for item in processed_items)
-		return f"Trending points from today's feed: {titles}."
-
-	def generate_review_text(self, topic: str, summary: str) -> str:
-		# TODO(team): integrate credibility and ranking stages before final generation.
-		return (
-			f"Daily review for '{topic}': {summary} "
-			"This is a mock response prepared for frontend and API integration."
-		)
+		"""
+		Appelle le pipeline de scraping réel et filtre par sujet si nécessaire.
+		"""
+		# Lancement du pipeline réel
+		articles_data = run_scraping_pipeline()
+		
+		# Conversion en modèles Pydantic NewsArticle
+		news_articles = []
+		for i, a in enumerate(articles_data):
+			# Filtrage par topic simple sur le titre ou la catégorie
+			if topic and topic.lower() not in a.get("title", "").lower() and topic.lower() not in a.get("sport_category", "").lower():
+				continue
+				
+			news_articles.append(NewsArticle(
+				id=f"news-{i:03d}",
+				title=a.get("title", "Sans titre"),
+				source=a.get("source", "Inconnue"),
+				url=a.get("url", ""),
+				summary=a.get("summary", "Résumé non disponible"),
+				image_url=a.get("image_url"),
+				importance_score=a.get("importance_score", 0),
+				published_at=datetime.now(timezone.utc), # Simplification pour la démo
+				category=a.get("sport_category", "Sport"),
+			))
+		
+		return news_articles[:limit]
 
 	def run(self, topic: str, limit: int) -> ReviewResponse:
+		"""
+		Exécute le pipeline complet et génère une revue de presse.
+		"""
 		articles = self.collect_news(topic=topic, limit=limit)
-		processed = self.preprocess(articles)
-		summary = self.summarize(processed)
-		review = self.generate_review_text(topic=topic, summary=summary)
+		
+		if not articles:
+			summary = f"Aucun article trouvé pour le sujet : {topic}"
+			review_text = "La revue de presse n'a pas pu être générée."
+		else:
+			summary = f"Analyse de {len(articles)} articles récents sur {topic}."
+			# On pourrait appeler generate_press_review ici aussi
+			titles = " | ".join([a.title for a in articles])
+			review_text = f"Revue du jour ({topic}) : {titles}. Contenu généré par l'agent IA."
+
 		return ReviewResponse(
 			topic=topic,
 			article_count=len(articles),
 			summary=summary,
-			review=review,
+			review=review_text,
 			generated_at=datetime.now(timezone.utc),
 		)
 
@@ -144,3 +160,15 @@ def generate_review(
 	pipeline: AIPipeline = Depends(get_pipeline),
 ) -> ReviewResponse:
 	return pipeline.run(topic=payload.topic, limit=payload.limit)
+
+
+@router.post("/ai/translate", response_model=TranslationResponse)
+def translate(payload: TranslationRequest):
+    """
+    Endpoint pour traduire un résumé d'article.
+    """
+    result = translate_text(payload.text, payload.target_lang)
+    return TranslationResponse(
+        translated_text=result,
+        target_lang=payload.target_lang
+    )

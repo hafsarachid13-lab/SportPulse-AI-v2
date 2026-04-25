@@ -24,7 +24,7 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
 
 
 class Settings(BaseModel):
-	app_name: str = "AI News Review API"
+	app_name: str = "AI News Review"
 	app_version: str = "0.1.0"
 	environment: str = "development"
 	api_prefix: str = ""

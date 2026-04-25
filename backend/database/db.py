@@ -16,9 +16,9 @@ def _build_default_mysql_url() -> str:
     port = os.getenv("MYSQL_PORT", "3306")
     database = os.getenv("MYSQL_DATABASE", "veille_sportive")
     user = os.getenv("MYSQL_USER", "root")
-    password = os.getenv("MYSQL_PASSWORD", "cafe")
+    password = os.getenv("MYSQL_PASSWORD", "")
     charset = os.getenv("MYSQL_CHARSET", "utf8mb4")
-
+    
     credentials = user
     if password:
         credentials = f"{user}:{quote_plus(password)}"
