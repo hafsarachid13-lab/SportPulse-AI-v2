@@ -7,3 +7,8 @@ requests
 beautifulsoup4
 pytest
 httpx
+openpyxl
+fpdf2
+feedparser
+newspaper3k
+lxml_html_clean
