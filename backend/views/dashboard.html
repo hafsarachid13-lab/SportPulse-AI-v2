@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SportVeille — Dashboard</title>
+<meta name="description" content="AI-powered sports press review dashboard with analytics">
+<link rel="stylesheet" href="/static/dashboard.css">
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
+</head>
+<body>
+<div id="app" class="app">
+<!-- SIDEBAR -->
+<aside class="sidebar">
+<div class="logo">
+  <div class="logo-icon">⚡</div>
+  <div><div class="logo-text">SportVeille</div><div class="logo-sub">Journaliste</div></div>
+</div>
+<div class="nav-label">Navigation</div>
+<div class="nav-item" :class="{active:page==='dashboard'}" @click="nav('dashboard')">📊 Tableau de bord</div>
+<div class="nav-item" :class="{active:page==='review'}" @click="nav('review')">📰 Revue de presse</div>
+<div class="nav-item" :class="{active:page==='analytics'}" @click="nav('analytics')">📈 Analytics</div>
+<div class="nav-item" :class="{active:page==='exports'}" @click="nav('exports')">💾 Exports</div>
+<div class="sidebar-spacer"></div>
+<div class="nav-label">Actions</div>
+<div class="nav-item" @click="genReview" :style="{opacity:genLoading?.5:1}">🔄 {{genLoading?'Generating...':'Generate Review'}}</div>
+<div class="nav-item" @click="load">🔃 Refresh</div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+<header class="topbar">
+  <div class="topbar-title">{{page==='dashboard'?'📊 Tableau de bord':page==='review'?'📰 Revue de presse':page==='analytics'?'📈 Analytics':'💾 Exports'}}</div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost btn-sm" @click="doExport('pdf')">📄 PDF</button>
+    <button class="btn btn-ghost btn-sm" @click="doExport('excel')">📊 Excel</button>
+    <button class="btn btn-ghost btn-sm" @click="doExport('csv')">📋 CSV</button>
+    <button class="btn btn-primary" @click="genReview" :disabled="genLoading">🚀 {{genLoading?'...':'Generate'}}</button>
+  </div>
+</header>
+
+<div class="content">
+<!-- LOADING -->
+<div v-if="loading" class="loader"><div class="spinner"></div><p style="margin-top:16px;color:var(--text2)">Loading...</p></div>
+
+<!-- ========== DASHBOARD PAGE ========== -->
+<div v-else-if="page==='dashboard'" class="page active">
+<template v-if="dash">
+  <!-- KPIs -->
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-header"><span class="kpi-label">📰 Total Articles</span></div><div class="kpi-value">{{dash.kpis.total_articles}}</div><div class="kpi-sub">Collected today</div></div>
+    <div class="kpi"><div class="kpi-header"><span class="kpi-label">📡 Sources actives</span></div><div class="kpi-value">{{dash.kpis.active_sources}}</div><div class="kpi-sub">News sources</div></div>
+    <div class="kpi"><div class="kpi-header"><span class="kpi-label">✅ Crédibilité</span></div><div class="kpi-value">{{pct(dash.kpis.avg_credibility)}}</div><div class="kpi-sub">Source quality avg</div></div>
+    <div class="kpi"><div class="kpi-header"><span class="kpi-label">⭐ Importance</span></div><div class="kpi-value">{{pct(dash.kpis.avg_importance)}}</div><div class="kpi-sub">Relevance avg</div></div>
+    <div class="kpi"><div class="kpi-header"><span class="kpi-label">🏆 Top Sport</span></div><div class="kpi-value" style="font-size:20px">{{dash.kpis.top_sport}}</div><div class="kpi-sub">Most covered</div></div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filter-bar">
+    <div class="filter-group"><label>Source</label><select v-model="filters.source" @change="applyFilters"><option value="">All</option><option v-for="s in dash.filters.available_sources" :value="s">{{s}}</option></select></div>
+    <div class="filter-group"><label>Sport</label><select v-model="filters.sport" @change="applyFilters"><option value="">All</option><option v-for="s in dash.filters.available_sports" :value="s">{{s}}</option></select></div>
+    <div class="filter-group"><label>Min Credibility: {{pct(filters.min_credibility)}}</label><input type="range" v-model.number="filters.min_credibility" min="0" max="1" step="0.1" @change="applyFilters"></div>
+    <div class="filter-group"><label>Min Importance: {{pct(filters.min_importance)}}</label><input type="range" v-model.number="filters.min_importance" min="0" max="1" step="0.1" @change="applyFilters"></div>
+    <button class="btn btn-ghost btn-sm" @click="resetFilters">Reset</button>
+  </div>
+
+  <!-- CHARTS ROW 1 -->
+  <div class="grid-2">
+    <div class="card"><div class="card-header"><span class="card-title">📊 Sources Distribution</span><span class="card-badge">{{dash.source_distribution.total_sources}} sources</span></div><div class="chart-wrap"><canvas id="srcChart"></canvas></div></div>
+    <div class="card"><div class="card-header"><span class="card-title">🏟️ Articles by Sport</span><span class="card-badge">{{dash.sport_analytics.total_sports}} sports</span></div><div class="chart-wrap"><canvas id="sportChart"></canvas></div></div>
+  </div>
+
+  <!-- CHARTS ROW 2 -->
+  <div class="grid-2">
+    <div class="card"><div class="card-header"><span class="card-title">⭐ Importance Distribution</span></div><div class="chart-wrap"><canvas id="impChart"></canvas></div></div>
+    <div class="card"><div class="card-header"><span class="card-title">✅ Source Credibility</span></div><div class="chart-wrap"><canvas id="credChart"></canvas></div></div>
+  </div>
+
+  <!-- TRENDING + TOP SOURCES -->
+  <div class="grid-2">
+    <div class="card"><div class="card-header"><span class="card-title">🔥 Trending Topics</span><span class="card-badge">{{dash.trending.total_unique_keywords}} keywords</span></div>
+      <div v-for="kw in dash.trending.trending_keywords.slice(0,8)" :key="kw.keyword" class="list-item"><span class="list-name">#{{kw.keyword}}</span><span class="tag tag-primary">{{kw.frequency}}</span></div>
+    </div>
+    <div class="card"><div class="card-header"><span class="card-title">📡 Top Sources</span></div>
+      <div v-for="src in dash.source_distribution.sources.slice(0,8)" :key="src.name" class="list-item"><div><div class="list-name">{{src.name}}</div><div class="list-meta">{{src.article_count}} articles · {{src.percentage}}%</div></div><span class="tag tag-success">{{src.avg_credibility.toFixed(2)}}</span></div>
+    </div>
+  </div>
+
+  <!-- REVIEW PREVIEW -->
+  <div class="card" style="margin-bottom:28px" v-if="dash.article_count>0">
+    <div class="card-header"><span class="card-title">📰 Review Preview</span><button class="btn btn-ghost btn-sm" @click="nav('review')">View Full →</button></div>
+    <div v-for="h in (dash.kpis.total_articles?5:0)" :key="h" class="review-article" v-if="review && review.articles && review.articles[h-1]">
+      <h4>{{review.articles[h-1].title}}</h4>
+      <p>{{(review.articles[h-1].summary||'').slice(0,150)}}...</p>
+      <div class="meta"><span>📡 {{review.articles[h-1].source}}</span><span>🏟️ {{review.articles[h-1].sport}}</span><span>⭐ {{pct(review.articles[h-1].importance_score)}}</span></div>
+    </div>
+    <div v-if="!review" style="color:var(--text3);font-size:13px;padding:12px">Click "Generate" to see review preview</div>
+  </div>
+</template>
+<div v-else style="text-align:center;padding:60px">
+  <p style="font-size:48px;margin-bottom:16px">📰</p>
+  <h2 style="margin-bottom:8px">No Data Yet</h2>
+  <p style="color:var(--text2);margin-bottom:24px">Generate a press review to populate the dashboard</p>
+  <button class="btn btn-primary" @click="genReview">🚀 Generate Review</button>
+</div>
+</div>
+
+<!-- ========== REVIEW PAGE ========== -->
+<div v-else-if="page==='review'" class="page active">
+<template v-if="review">
+  <div class="card" style="margin-bottom:20px">
+    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px">{{review.title}}</h2>
+    <p style="color:var(--text2);font-size:13px">📅 {{review.date}} · Generated at {{(review.generated_at||'').slice(11,19)}}</p>
+  </div>
+  <div class="card" style="margin-bottom:20px" v-if="review.highlights">
+    <div class="card-header"><span class="card-title">🏆 Top Headlines</span></div>
+    <div v-for="(h,i) in review.highlights" :key="i" class="list-item"><span class="list-name">{{i+1}}. {{h}}</span></div>
+  </div>
+  <div v-for="(arts,sport) in (review.categories||{})" :key="sport" class="card" style="margin-bottom:16px">
+    <div class="card-header"><span class="card-title">🏟️ {{sport}}</span><span class="card-badge">{{arts.length}} articles</span></div>
+    <div v-for="a in arts.slice(0,5)" :key="a.id||a.title" class="review-article">
+      <h4>{{a.title}}</h4>
+      <p>{{(a.summary||'').slice(0,200)}}</p>
+      <div class="meta"><span>📡 {{a.source}}</span><span>⭐ {{typeof a.importance_score==='number'?pct(a.importance_score):'N/A'}}</span></div>
+    </div>
+  </div>
+</template>
+<div v-else style="text-align:center;padding:60px">
+  <p style="font-size:48px;margin-bottom:16px">📰</p>
+  <p style="color:var(--text2);margin-bottom:24px">No review generated yet</p>
+  <button class="btn btn-primary" @click="genReview">🚀 Generate Review</button>
+</div>
+</div>
+
+<!-- ========== ANALYTICS PAGE ========== -->
+<div v-else-if="page==='analytics'" class="page active">
+<template v-if="dash">
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-label">High Importance</div><div class="kpi-value">{{dash.importance.distribution.high}}</div><div class="kpi-sub">Score ≥ 70%</div></div>
+    <div class="kpi"><div class="kpi-label">Medium</div><div class="kpi-value">{{dash.importance.distribution.medium}}</div><div class="kpi-sub">Score 40-70%</div></div>
+    <div class="kpi"><div class="kpi-label">Low</div><div class="kpi-value">{{dash.importance.distribution.low}}</div><div class="kpi-sub">Score &lt; 40%</div></div>
+    <div class="kpi"><div class="kpi-label">Avg Credibility</div><div class="kpi-value">{{pct(dash.credibility.avg_credibility)}}</div><div class="kpi-sub">All sources</div></div>
+  </div>
+  <div class="grid-2">
+    <div class="card"><div class="card-header"><span class="card-title">📊 Credibility by Source</span></div>
+      <div v-for="s in dash.credibility.sources_by_credibility.slice(0,10)" :key="s.source" class="list-item">
+        <div><div class="list-name">{{s.source}}</div><div class="list-meta">{{s.article_count}} articles</div></div>
+        <div style="display:flex;align-items:center;gap:8px;min-width:120px"><div class="progress-bar" style="flex:1"><div class="progress-fill" :style="{width:pct(s.avg_credibility),background:s.avg_credibility>=0.8?'var(--success)':s.avg_credibility>=0.5?'var(--warning)':'var(--danger)'}"></div></div><span class="tag" :class="s.avg_credibility>=0.8?'tag-success':s.avg_credibility>=0.5?'tag-warning':'tag-primary'">{{pct(s.avg_credibility)}}</span></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-header"><span class="card-title">🔥 Trending Entities</span></div>
+      <div v-for="e in dash.trending.trending_entities.slice(0,10)" :key="e.entity" class="list-item"><span class="list-name">{{e.entity}}</span><span class="tag tag-accent">{{e.mentions}} mentions</span></div>
+    </div>
+  </div>
+  <div class="card"><div class="card-header"><span class="card-title">🏟️ Sport Performance</span></div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:10px;color:var(--text2);font-size:12px">Sport</th><th style="padding:10px;color:var(--text2);font-size:12px">Articles</th><th style="padding:10px;color:var(--text2);font-size:12px">Share</th><th style="padding:10px;color:var(--text2);font-size:12px">Avg Importance</th></tr></thead>
+      <tbody><tr v-for="s in dash.sport_analytics.sports" :key="s.sport" style="border-bottom:1px solid var(--border)"><td style="padding:10px;font-weight:600">{{s.sport}}</td><td style="padding:10px;text-align:center">{{s.article_count}}</td><td style="padding:10px;text-align:center">{{s.percentage}}%</td><td style="padding:10px;text-align:center"><span class="tag" :class="s.avg_importance>=0.7?'tag-success':'tag-warning'">{{pct(s.avg_importance)}}</span></td></tr></tbody>
+    </table>
+  </div>
+</template>
+<div v-else style="text-align:center;padding:60px;color:var(--text2)">Generate a review first</div>
+</div>
+
+<!-- ========== EXPORTS PAGE ========== -->
+<div v-else-if="page==='exports'" class="page active">
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-header"><span class="card-title">📥 Export Review</span></div>
+    <div class="export-grid">
+      <div class="export-card" @click="doExport('pdf')"><div class="icon">📄</div><div class="label">PDF Report</div><div class="desc">Formatted document</div></div>
+      <div class="export-card" @click="doExport('excel')"><div class="icon">📊</div><div class="label">Excel</div><div class="desc">Multi-sheet workbook</div></div>
+      <div class="export-card" @click="doExport('csv')"><div class="icon">📋</div><div class="label">CSV</div><div class="desc">Flat data table</div></div>
+      <div class="export-card" @click="doExport('json')"><div class="icon">🔧</div><div class="label">JSON</div><div class="desc">Structured data</div></div>
+      <div class="export-card" @click="doExport('all')"><div class="icon">📦</div><div class="label">All Formats (ZIP)</div><div class="desc">Bundle download</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">📜 Export History</span><span class="card-badge">{{exportHistory.length}} exports</span></div>
+    <div v-if="exportHistory.length===0" style="color:var(--text3);font-size:13px;padding:12px">No exports yet</div>
+    <div v-for="ex in exportHistory.slice(0,15)" :key="ex.id" class="list-item">
+      <div><div class="list-name">{{ex.filename}}</div><div class="list-meta">{{ex.generated_at.slice(0,19).replace('T',' ')}} · {{fmtSize(ex.file_size)}}</div></div>
+      <span class="tag tag-accent">{{ex.format.toUpperCase()}}</span>
+    </div>
+  </div>
+</div>
+
+<!-- ERROR -->
+<div v-if="error && !loading && page==='dashboard' && !dash" style="text-align:center;padding:60px">
+  <p style="font-size:48px;margin-bottom:16px">⚠️</p>
+  <p style="color:var(--text2);margin-bottom:24px">{{error}}</p>
+  <button class="btn btn-primary" @click="genReview">🚀 Generate Review</button>
+</div>
+</div>
+</div>
+</div>
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

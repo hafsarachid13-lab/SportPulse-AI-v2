@@ -24,10 +24,10 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
 
 
 class Settings(BaseModel):
-	app_name: str = "AI News Review API"
+	app_name: str = "AI News Review"
 	app_version: str = "0.1.0"
 	environment: str = "development"
-	api_prefix: str = ""
+	api_prefix: str = "/api/v1"
 
 	react_dev_origin: str = "http://localhost:3000"
 	react_vite_origin: str = "http://localhost:5173"
@@ -58,7 +58,7 @@ def get_settings() -> Settings:
 		app_name=os.getenv("APP_NAME", "AI News Review API"),
 		app_version=os.getenv("APP_VERSION", "0.1.0"),
 		environment=os.getenv("ENVIRONMENT", "development"),
-		api_prefix=os.getenv("API_PREFIX", ""),
+		api_prefix=os.getenv("API_PREFIX", "/api/v1"),
 		react_dev_origin=react_dev_origin,
 		react_vite_origin=react_vite_origin,
 		cors_allow_origins=cors_origins,

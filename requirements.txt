@@ -9,6 +9,11 @@ python-multipart
 openpyxl
 requests
 beautifulsoup4
+feedparser
+lxml
+sumy
+nltk
+langdetect
 pytest
 httpx
 openpyxl

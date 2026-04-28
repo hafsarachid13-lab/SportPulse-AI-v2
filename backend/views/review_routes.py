@@ -4,8 +4,8 @@ import os
 import datetime
 from typing import Dict, Any, List
 
-from services.scraper_service import fetch_articles, get_sources_with_credibility
-from services.export_service import ExportService
+from backend.services.scraper_service import fetch_articles, get_sources_with_credibility
+from backend.services.export_service import ExportService
 
 export_service_instance = ExportService()
 
