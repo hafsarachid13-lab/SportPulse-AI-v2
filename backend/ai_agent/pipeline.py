@@ -131,9 +131,9 @@ def run_pipeline():
             else:
                 sport = classify_sport(content)
             
-            # FILTRAGE STRICT : On n'accepte que les sports définis dans le code
+            # Au lieu de supprimer, on classe en "Général" si non reconnu
             if sport == "Autre":
-                continue
+                sport = "Général"
                 
             article["sport_category"] = sport
             

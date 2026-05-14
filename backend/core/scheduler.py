@@ -51,6 +51,10 @@ class NewsScheduler:
             self.scheduler.start()
             logger.info("🚀 Scheduler démarré avec succès")
             
+            # Lancement immédiat au démarrage (en arrière-plan pour ne pas bloquer FastAPI)
+            logger.info("⚡ Lancement de la collecte immédiate au démarrage...")
+            self.review_service.generate_review(background=True)
+            
             next_run = self.get_next_run_time()
             if next_run:
                 from datetime import datetime

@@ -219,6 +219,7 @@ class ReviewService:
                 "credibility_score": getattr(a, "credibility_score", 0.75) or 0.75,
                 "source": a.source.name if a.source else "Inconnue",
                 "image_url": a.image_url,
+                "langue": a.langue or "fr",
             })
         return self._deduplicate_articles(articles)
 

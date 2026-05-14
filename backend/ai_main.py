@@ -48,6 +48,7 @@ class NewsArticle(BaseModel):
 	importance_score: int = 0
 	published_at: datetime
 	category: str
+	langue: str = "fr"
 
 
 class NewsResponse(BaseModel):
@@ -71,7 +72,7 @@ class ReviewResponse(BaseModel):
 
 class TranslationRequest(BaseModel):
     text: str
-    target_lang: str = Field(..., pattern="^(ar|fr|en)$")
+    target_lang: str = Field(..., pattern="^(ar|fr|en|es)$")
 
 
 class TranslationResponse(BaseModel):
@@ -111,6 +112,7 @@ class AIPipeline:
 					importance_score=int(a.importance_score * 100) if a.importance_score else 0,
 					published_at=a.published_at or datetime.now(timezone.utc),
 					category=a.sport_category or "Sport",
+					langue=a.langue or "fr",
 				))
 			
 			return news_articles

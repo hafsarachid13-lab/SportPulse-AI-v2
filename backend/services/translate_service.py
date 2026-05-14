@@ -3,7 +3,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_LANGUAGES = ["ar", "fr", "en"]
+SUPPORTED_LANGUAGES = ["ar", "fr", "en", "es"]
 
 def translate_text(text: str, target_lang: str) -> str:
     """

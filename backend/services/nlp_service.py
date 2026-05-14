@@ -6,7 +6,7 @@ from .summarize_service import summarize_text as ai_summarize_text
 
 def detect_language(text: str, source: str = None) -> str:
     """
-    Détecte la langue du texte (fr, en, ar, etc.) avec priorité sur l'arabe.
+    Détecte la langue du texte (fr, en, ar, es, etc.) avec priorité sur l'arabe.
     Force l'arabe si la source est Hesport.
     """
     try:
@@ -14,17 +14,27 @@ def detect_language(text: str, source: str = None) -> str:
             return "ar"
             
         if not text or len(text) < 10:
-            return "unknown"
+            return "fr" # Par défaut en français si trop court
         
         # Détection manuelle de l'arabe (Plage Unicode \u0600-\u06FF)
-        # On augmente la sensibilité en vérifiant si au moins 5% des caractères sont arabes ou si on trouve des mots clés arabes
+        # On vérifie si au moins 5% des caractères sont arabes
         arabic_chars = sum(1 for c in text if '\u0600' <= c <= '\u06FF')
-        if arabic_chars > 0:
+        if len(text) > 20 and (arabic_chars / len(text)) > 0.05:
+            return "ar"
+        elif arabic_chars > 5: # Pour les textes courts mais clairement arabes
             return "ar"
             
-        return detect(text)
-    except:
-        return "ar" if source and source.lower() == "hesport" else "unknown"
+        lang = detect(text)
+        
+        # Mapping vers nos langues supportées
+        supported_langs = ["fr", "en", "ar", "es"]
+        if lang in supported_langs:
+            return lang
+        
+        return "fr" # Default if not in supported list
+    except Exception as e:
+        print(f"Error detecting language: {e}")
+        return "ar" if source and source.lower() == "hesport" else "fr"
 
 def summarize_text(text: str, sentences_count: int = 3) -> str:
     """Relaye la demande au service de résumé IA."""
@@ -83,7 +93,7 @@ def classify_sport(text: str) -> str:
             "natation", "swimming", "nuoto", "natación", "natacao", "piscine", "pool", "piscina", "nage", "swim", "سباحة", "حوض سباحة"
         ],
         "Handball": [
-            "handball", "pallamano", "balonmano", "andebol", "pivot", "goal", "but", "كرة اليد"
+            "handball", "pallamano", "balonmano", "andebol", "pivot", "كرة اليد"
         ],
         "Volleyball": [
             "volleyball", "volley", "pallavolo", "voleibol", "smash", "الكرة الطائرة"
@@ -94,16 +104,18 @@ def classify_sport(text: str) -> str:
             "écurie", "سباق فورمولا", "سباق الدراجات النارية", "سباق السيارات"
         ],
         "Combat": [
-            "boxe", "boxing", "mma", "ufc", "judo", "karate", "taekwondo", "ملاكمة", "WBA", "WBO", "World Boxing Organization", "فنون قتالية"
+            "boxe", "boxing", "mma", "ufc", "judo", "karate", "taekwondo", "ملاكمة", "WBA", "WBO", "World Boxing Organization", "فنون قتالية",
+            "bout", "fighter", "heavyweight", "ring", "knockout", "ko", "round", "sparring", "heavyweight", "lightweight"
         ],
         "Golf":[
             "golf", "putt", "green", "swing", "birdie", "masters", "dp world tour", "غولف"
         ],
         "Hockey": [
-            "hockey", "nhl", "puck", "ice", "hielo", "ghiaccio", "gelo", "stanley cup", "playoff", "goaltender", "goal", "but", "هوكي"
+            "hockey", "nhl", "puck", "ice", "hielo", "ghiaccio", "gelo", "stanley cup", "playoff", "goaltender", "هوكي"
         ],
         "Équitation": [
-            "équitation", "equestrian", "ippica", "hípica", "cheval", "horse", "cavallo", "caballo", "cavalo", "jockey", "hippisme", "turf", "ascot", "longchamp", "guineas", "classic", "hippique", "فروسية", "سباق الخيل", "خيل", "جوكى"
+            "équitation", "equestrian", "ippica", "hípica", "cheval", "horse", "cavallo", "caballo", "cavalo", "jockey", "hippisme", "turf", "ascot", "longchamp", "guineas", "classic", "hippique", "فروسية", "سباق الخيل", "خيل", "جوكى",
+            "derby", "stakes", "epsom", "york", "cheltenham", "thoroughbred", "stallion", "mare", "colt", "filly", "equiworld"
         ],
         "Ski": [
             "ski", "sci", "esquí", "neige", "snow", "neve", "nieve", "slalom", "تزلج", "تزحلق"
