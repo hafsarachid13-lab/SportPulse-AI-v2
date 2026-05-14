@@ -9,5 +9,5 @@ controller = ArticleController()
 
 
 @router.get("")
-def get_articles(db: Session = Depends(get_db)):
-    return {"articles": controller.list_articles(db)}
+def get_articles(today: bool = False, db: Session = Depends(get_db)):
+    return {"articles": controller.list_articles(db, today=today)}

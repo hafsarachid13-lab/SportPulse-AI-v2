@@ -43,37 +43,48 @@ class DashboardService:
     # ──────────────────────────────────────────────────────
 
     def get_kpi_cards(self, articles: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Generate KPI card data for dashboard display."""
+        """Generate KPI card data for dashboard display using live DB status for sources."""
+        try:
+            from backend.database.db import SessionLocal
+            from backend.database.models import Source
+            
+            db = SessionLocal()
+            active_sources_count = 0
+            try:
+                active_sources_count = db.query(Source).filter(Source.is_active == True).count()
+            except Exception as e:
+                logger.error(f"Error counting active sources in DB: {e}")
+            finally:
+                db.close()
+        except ImportError:
+            logger.error("Could not import database models in get_kpi_cards")
+            active_sources_count = 0
+
         if not articles:
             return {
                 "total_articles": 0,
-                "active_sources": 0,
+                "active_sources": active_sources_count,
                 "avg_credibility": 0.0,
                 "avg_importance": 0.0,
                 "top_sport": "N/A",
                 "high_importance_count": 0,
-                "categories_count": 0,
+                "categories_count": 15,
             }
 
-        sources = set(a.get("source", "Unknown") for a in articles)
-        sports = Counter(a.get("sport", "General") for a in articles)
+        sports = Counter(a.get("sport_category", "Général") for a in articles)
         importance_scores = [a.get("importance_score", 0.5) for a in articles]
-        credibility_scores = [a.get("credibility", 0.75) for a in articles]
+        credibility_scores = [a.get("credibility_score", 0.75) for a in articles]
 
         return {
             "total_articles": len(articles),
-            "active_sources": len(sources),
-            "avg_credibility": round(
-                sum(credibility_scores) / len(credibility_scores), 3
-            ),
-            "avg_importance": round(
-                sum(importance_scores) / len(importance_scores), 3
-            ),
+            "active_sources": active_sources_count,
+            "avg_credibility": round(sum(credibility_scores) / len(credibility_scores), 3) if articles else 0.0,
+            "avg_importance": round(sum(importance_scores) / len(importance_scores), 3) if articles else 0.0,
             "top_sport": sports.most_common(1)[0][0] if sports else "General",
             "high_importance_count": len(
                 [s for s in importance_scores if s >= 0.7]
             ),
-            "categories_count": len(sports),
+            "categories_count": 15, # Forcé à 15 catégories comme demandé
         }
 
     # ──────────────────────────────────────────────────────
@@ -99,9 +110,13 @@ class DashboardService:
         by_hour: Dict[str, int] = defaultdict(int)
         for article in articles:
             try:
-                pub_date = article.get("published_date", "")
+                pub_date = article.get("published_at", "")
                 if pub_date:
-                    day = pub_date.split("T")[0] if "T" in pub_date else pub_date
+                    # Gérer si c'est un objet datetime ou une string
+                    if hasattr(pub_date, "isoformat"):
+                        day = pub_date.date().isoformat()
+                    else:
+                        day = str(pub_date).split(" ")[0].split("T")[0]
                     by_hour[day] += 1
             except Exception:
                 pass
@@ -135,12 +150,12 @@ class DashboardService:
         for source, count in sources_count.most_common(15):
             source_articles = [a for a in articles if a.get("source") == source]
             avg_cred = (
-                sum(a.get("credibility", 0.75) for a in source_articles)
-                / len(source_articles)
+                sum(a.get("credibility_score", 0.75) for a in source_articles)
+                / len(source_articles) if source_articles else 0.75
             )
             avg_imp = (
                 sum(a.get("importance_score", 0.5) for a in source_articles)
-                / len(source_articles)
+                / len(source_articles) if source_articles else 0.5
             )
 
             sources_data.append({
@@ -223,14 +238,14 @@ class DashboardService:
         if not articles:
             return {"total_sports": 0, "sports": [], "distribution": {}}
 
-        sports_count = Counter(a.get("sport", "General") for a in articles)
+        sports_count = Counter(a.get("sport_category", "Général") for a in articles)
 
         sports_data = []
         for sport, count in sports_count.most_common():
-            sport_articles = [a for a in articles if a.get("sport") == sport]
+            sport_articles = [a for a in articles if a.get("sport_category") == sport]
             avg_importance = (
                 sum(a.get("importance_score", 0.5) for a in sport_articles)
-                / len(sport_articles)
+                / len(sport_articles) if sport_articles else 0.5
             )
 
             sports_data.append({
@@ -267,8 +282,8 @@ class DashboardService:
                 "sources_by_credibility": [],
             }
 
-        credibility_scores = [a.get("credibility", 0.75) for a in articles]
-        avg_cred = sum(credibility_scores) / len(credibility_scores)
+        credibility_scores = [a.get("credibility_score", 0.75) for a in articles]
+        avg_cred = sum(credibility_scores) / len(credibility_scores) if credibility_scores else 0
 
         distribution = {
             "high": len([s for s in credibility_scores if s >= 0.8]),
@@ -282,19 +297,19 @@ class DashboardService:
         for article in articles:
             source = article.get("source", "Unknown")
             sources[source]["count"] += 1
-            sources[source]["avg_credibility"] += article.get("credibility", 0.75)
+            sources[source]["avg_credibility"] += article.get("credibility_score", 0.75)
 
         sources_by_credibility = [
             {
                 "source": s,
                 "avg_credibility": round(
                     data["avg_credibility"] / data["count"], 3
-                ),
+                ) if data["count"] > 0 else 0.75,
                 "article_count": data["count"],
             }
             for s, data in sorted(
                 sources.items(),
-                key=lambda x: x[1]["avg_credibility"] / x[1]["count"],
+                key=lambda x: x[1]["avg_credibility"] / x[1]["count"] if x[1]["count"] > 0 else 0,
                 reverse=True,
             )
         ]
@@ -321,7 +336,7 @@ class DashboardService:
             }
 
         importance_scores = [a.get("importance_score", 0.5) for a in articles]
-        avg_imp = sum(importance_scores) / len(importance_scores)
+        avg_imp = sum(importance_scores) / len(importance_scores) if importance_scores else 0.0
 
         distribution = {
             "high": len([s for s in importance_scores if s >= 0.7]),
@@ -333,8 +348,8 @@ class DashboardService:
             "avg_importance": round(avg_imp, 3),
             "distribution": distribution,
             "range": {
-                "min": round(min(importance_scores), 3) if importance_scores else 0,
-                "max": round(max(importance_scores), 3) if importance_scores else 1,
+                "min": round(min(importance_scores), 3) if importance_scores else 0.0,
+                "max": round(max(importance_scores), 3) if importance_scores else 1.0,
             },
         }
 
@@ -353,16 +368,19 @@ class DashboardService:
             }
 
         sources = sorted(set(a.get("source", "Unknown") for a in articles))
-        sports = sorted(set(a.get("sport", "General") for a in articles))
+        sports = sorted(set(a.get("sport_category", "Général") for a in articles))
 
         dates: List[str] = []
         for article in articles:
-            date = article.get("published_date", "")
-            if date:
-                dates.append(date.split("T")[0] if "T" in date else date)
+            date_val = article.get("published_at", "")
+            if date_val:
+                if hasattr(date_val, "isoformat"):
+                    dates.append(date_val.date().isoformat())
+                else:
+                    dates.append(str(date_val).split(" ")[0].split("T")[0])
         dates = sorted(set(dates))
 
-        credibility_scores = [a.get("credibility", 0.75) for a in articles]
+        credibility_scores = [a.get("credibility_score", 0.75) for a in articles]
 
         return {
             "available_sources": sources,
@@ -382,41 +400,50 @@ class DashboardService:
     # ──────────────────────────────────────────────────────
 
     def get_dashboard_data(self, review_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate complete dashboard data from a review."""
-        articles = review_data.get("articles", [])
+        """Generate complete dashboard data from a review with robust error handling."""
+        try:
+            articles = review_data.get("articles", [])
+            logger.info(f"Generating dashboard data for {len(articles)} articles...")
 
-        logger.info(
-            f"Generating dashboard data for {len(articles)} articles..."
-        )
-
-        dashboard_data = {
-            "timestamp": datetime.now().isoformat(),
-            "article_count": len(articles),
-            # KPI Cards
-            "kpis": self.get_kpi_cards(articles),
-            # Charts data
-            "article_volume": self.get_article_volume_stats(articles),
-            "source_distribution": self.get_source_distribution(articles),
-            "sport_analytics": self.get_sport_analytics(articles),
-            # Analytics
-            "trending": self.get_trending_topics(articles),
-            "credibility": self.get_credibility_metrics(articles),
-            "importance": self.get_importance_metrics(articles),
-            # Filters
-            "filters": self.get_filters_data(articles),
-            # Summary
-            "summary": {
-                "generated_date": review_data.get("date", ""),
-                "total_sources": review_data.get("metadata", {}).get(
-                    "sources_count", 0
-                ),
-                "total_categories": review_data.get("metadata", {}).get(
-                    "categories_count", 0
-                ),
-            },
-        }
-
-        return dashboard_data
+            dashboard_data = {
+                "timestamp": datetime.now().isoformat(),
+                "article_count": len(articles),
+                # KPI Cards
+                "kpis": self.get_kpi_cards(articles),
+                # Charts data
+                "article_volume": self.get_article_volume_stats(articles),
+                "source_distribution": self.get_source_distribution(articles),
+                "sport_analytics": self.get_sport_analytics(articles),
+                # Analytics
+                "trending": self.get_trending_topics(articles),
+                "credibility": self.get_credibility_metrics(articles),
+                "importance": self.get_importance_metrics(articles),
+                # Filters
+                "filters": self.get_filters_data(articles),
+                # Summary
+                "summary": {
+                    "generated_date": review_data.get("date", ""),
+                    "total_sources": review_data.get("metadata", {}).get("sources_count", 0) if review_data.get("metadata") else 0,
+                    "total_categories": 15, # Toujours 15 catégories
+                },
+            }
+            return dashboard_data
+        except Exception as e:
+            logger.error(f"CRITICAL ERROR in get_dashboard_data: {e}", exc_info=True)
+            # Retourner une structure minimale pour éviter le crash 500
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "article_count": 0,
+                "kpis": {"total_articles": 0, "active_sources": 0, "categories_count": 15},
+                "article_volume": {"total": 0, "by_source": {}, "by_hour": {}},
+                "source_distribution": {"total_sources": 0, "sources": []},
+                "sport_analytics": {"total_sports": 0, "sports": []},
+                "trending": {"trending_keywords": [], "trending_entities": []},
+                "credibility": {"avg_credibility": 0, "distribution": {}},
+                "importance": {"avg_importance": 0, "distribution": {}},
+                "filters": {"available_sources": [], "available_sports": []},
+                "summary": {"total_categories": 15}
+            }
 
     # ──────────────────────────────────────────────────────
     # FILTER ARTICLES
@@ -437,12 +464,12 @@ class DashboardService:
             filtered = [a for a in filtered if a.get("source") == source]
 
         if sport:
-            filtered = [a for a in filtered if a.get("sport") == sport]
+            filtered = [a for a in filtered if a.get("sport_category") == sport]
 
         if min_credibility > 0:
             filtered = [
                 a for a in filtered
-                if a.get("credibility", 0.75) >= min_credibility
+                if a.get("credibility_score", 0.75) >= min_credibility
             ]
 
         if min_importance > 0:

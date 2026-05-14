@@ -179,3 +179,11 @@ class DashboardState(BaseModel):
     data: DashboardResponse
     filters_applied: Optional[DashboardFilterParams] = None
     last_updated: str
+
+
+class QuickStats(BaseModel):
+    total_articles: int
+    active_sources: int
+    average_ai_score: int
+    covered_sports: int
+    today_count: Optional[int] = None

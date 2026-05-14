@@ -6,8 +6,10 @@ from typing import Dict, Any, List
 
 from backend.services.scraper_service import fetch_articles, get_sources_with_credibility
 from backend.services.export_service import ExportService
+from backend.services.review_service import ReviewService
 
 export_service_instance = ExportService()
+review_service = ReviewService()
 
 router = APIRouter()
 
@@ -24,37 +26,15 @@ os.makedirs(STATIC_PDF_DIR, exist_ok=True)
 # ──────────────────────────────────────────────────
 @router.post("/generate-review")
 async def generate_review_endpoint():
-    global _latest_review, _processed_articles
-
     try:
-        # 1. Fetch articles (real scraping)
-        raw_articles = fetch_articles()
-        if not raw_articles:
-            raise HTTPException(status_code=404, detail="No articles found")
-
-        _processed_articles = raw_articles
-
-        # 2. Categorization
-        categories: Dict[str, list] = {}
-        for art in raw_articles[:20]:
-            sport = art.get("sport", "General")
-            categories.setdefault(sport, []).append(art)
-
-        # 3. Build review
-        _latest_review = {
-            "title": f"Daily Sports Press Review - {datetime.date.today()}",
-            "date": datetime.datetime.now().isoformat(),
-            "top_headlines": [a["title"] for a in raw_articles[:5]],
-            "categories": categories,
-            "articles": raw_articles[:20]
-        }
-
-        # 4. Generate PDF
-        export_service_instance.generate_pdf(_latest_review, "review.pdf")
+        review = review_service.generate_review()
+        if not review:
+            raise HTTPException(status_code=404, detail="No articles found to generate review")
 
         return {
             "status": "success",
-            "message": "Review generated successfully"
+            "message": "Review generated successfully",
+            "review": review
         }
 
     except Exception as e:
@@ -66,9 +46,22 @@ async def generate_review_endpoint():
 # ──────────────────────────────────────────────────
 @router.get("/review")
 async def get_review_endpoint():
-    if not _latest_review:
+    from backend.core.scheduler import news_scheduler
+    review = review_service.get_latest_review()
+    if not review:
+        # Tenter une génération forcée si rien n'est trouvé
+        review = review_service.generate_review()
+        
+    if not review:
         raise HTTPException(status_code=404, detail="No review generated yet")
-    return _latest_review
+    
+    # Ajouter le temps du prochain passage du scheduler dans la réponse
+    if isinstance(review, dict):
+        if "metadata" not in review:
+            review["metadata"] = {}
+        review["metadata"]["next_scrape"] = news_scheduler.get_next_run_time()
+        
+    return review
 
 
 # ──────────────────────────────────────────────────
@@ -85,7 +78,7 @@ async def get_news_endpoint():
 # ──────────────────────────────────────────────────
 # ✅ GET SOURCES
 # ──────────────────────────────────────────────────
-@router.get("/sources")
+@router.get("/review/sources")
 async def get_sources_endpoint():
     try:
         sources = get_sources_with_credibility()

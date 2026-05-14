@@ -21,6 +21,7 @@ from backend.views.source_routes import router as source_router
 # ── Person 5's consolidated routers ─────────────────────
 from backend.views.dashboard_routes import router as dashboard_router
 from backend.controllers.review_controller import router as review_controller_router
+from backend.core.scheduler import news_scheduler
 
 # ── Logging ─────────────────────────────────────────
 logging.basicConfig(
@@ -64,7 +65,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     # ── Include Hafsa's routes ──────────────────────────
-    app.include_router(ai_router, prefix=settings.api_prefix)
+    app.include_router(ai_router, prefix=settings.api_prefix + "/ai")
     app.include_router(auth_router, prefix=settings.api_prefix)
     app.include_router(user_router, prefix=settings.api_prefix)
     app.include_router(article_router, prefix=settings.api_prefix)
@@ -134,10 +135,20 @@ def create_app() -> FastAPI:
             logger.info(f"  GET     {settings.api_prefix}/sources")
             logger.info(f"  GET     {settings.api_prefix}/review/latest")
             logger.info(f"  POST    {settings.api_prefix}/review/generate")
-            logger.info("=" * 80)
+            logger.info("-" * 80)
+            
+            # Start scheduler
+            news_scheduler.start()
+            
         except Exception as e:
             logger.error(f"❌ Startup failed: {e}", exc_info=True)
             raise
+
+    @app.on_event("shutdown")
+    def shutdown_event():
+        """Stop scheduler when application shuts down."""
+        news_scheduler.shutdown()
+        logger.info("👋 Application shutting down")
 
     return app
 

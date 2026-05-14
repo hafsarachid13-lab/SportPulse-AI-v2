@@ -10,6 +10,9 @@ from pydantic import BaseModel, Field
 #Temporairement
 from .ai_agent.pipeline import run_scraping_pipeline
 from .services.translate_service import translate_text
+from .database.db import SessionLocal
+from .database.models import Article, RevueDePresse
+from fastapi import BackgroundTasks
 
 
 def main():
@@ -81,54 +84,68 @@ class AIPipeline:
 
 	def collect_news(self, topic: Optional[str], limit: int) -> List[NewsArticle]:
 		"""
-		Appelle le pipeline de scraping réel et filtre par sujet si nécessaire.
+		Récupère les articles depuis la base de données (cache).
 		"""
-		# Lancement du pipeline réel
-		articles_data = run_scraping_pipeline()
-		
-		# Conversion en modèles Pydantic NewsArticle
-		news_articles = []
-		for i, a in enumerate(articles_data):
-			# Filtrage par topic simple sur le titre ou la catégorie
-			if topic and topic.lower() not in a.get("title", "").lower() and topic.lower() not in a.get("sport_category", "").lower():
-				continue
-				
-			news_articles.append(NewsArticle(
-				id=f"news-{i:03d}",
-				title=a.get("title", "Sans titre"),
-				source=a.get("source", "Inconnue"),
-				url=a.get("url", ""),
-				summary=a.get("summary", "Résumé non disponible"),
-				image_url=a.get("image_url"),
-				importance_score=a.get("importance_score", 0),
-				published_at=datetime.now(timezone.utc), # Simplification pour la démo
-				category=a.get("sport_category", "Sport"),
-			))
-		
-		return news_articles[:limit]
+		db = SessionLocal()
+		try:
+			query = db.query(Article).order_by(Article.published_at.desc())
+			
+			if topic:
+				# Recherche simple dans le titre ou la catégorie
+				query = query.filter(
+					(Article.title.ilike(f"%{topic}%")) | 
+					(Article.sport_category.ilike(f"%{topic}%"))
+				)
+			
+			articles_db = query.limit(limit).all()
+			
+			news_articles = []
+			for a in articles_db:
+				news_articles.append(NewsArticle(
+					id=f"news-{a.id}",
+					title=a.title,
+					source=a.source.name if a.source else "Inconnue",
+					url=a.url,
+					summary=a.content[:200] + "..." if a.content else "Résumé non disponible",
+					image_url=a.image_url,
+					importance_score=int(a.importance_score * 100) if a.importance_score else 0,
+					published_at=a.published_at or datetime.now(timezone.utc),
+					category=a.sport_category or "Sport",
+				))
+			
+			return news_articles
+		finally:
+			db.close()
 
 	def run(self, topic: str, limit: int) -> ReviewResponse:
 		"""
-		Exécute le pipeline complet et génère une revue de presse.
+		Récupère la dernière revue de presse ou lance le pipeline.
 		"""
-		articles = self.collect_news(topic=topic, limit=limit)
-		
-		if not articles:
-			summary = f"Aucun article trouvé pour le sujet : {topic}"
-			review_text = "La revue de presse n'a pas pu être générée."
-		else:
-			summary = f"Analyse de {len(articles)} articles récents sur {topic}."
-			# On pourrait appeler generate_press_review ici aussi
-			titles = " | ".join([a.title for a in articles])
-			review_text = f"Revue du jour ({topic}) : {titles}. Contenu généré par l'agent IA."
-
-		return ReviewResponse(
-			topic=topic,
-			article_count=len(articles),
-			summary=summary,
-			review=review_text,
-			generated_at=datetime.now(timezone.utc),
-		)
+		db = SessionLocal()
+		try:
+			# Essayer de trouver la revue d'aujourd'hui
+			from datetime import date
+			today_review = db.query(RevueDePresse).filter(RevueDePresse.date == date.today()).first()
+			
+			if today_review:
+				return ReviewResponse(
+					topic=topic,
+					article_count=today_review.nb_articles,
+					summary=today_review.title,
+					review=today_review.contenu_texte,
+					generated_at=today_review.generated_at,
+				)
+			
+			# Si pas de revue, on prévient qu'il faut lancer la collecte
+			return ReviewResponse(
+				topic=topic,
+				article_count=0,
+				summary="Aucune revue disponible pour aujourd'hui.",
+				review="Veuillez lancer une collecte de news pour générer la revue.",
+				generated_at=datetime.now(timezone.utc),
+			)
+		finally:
+			db.close()
 
 
 def get_pipeline() -> AIPipeline:
@@ -154,15 +171,27 @@ def get_review(
 	return pipeline.run(topic=topic, limit=limit)
 
 
+@router.post("/collect")
+def trigger_collection(background_tasks: BackgroundTasks):
+	"""
+	Lance le pipeline de collecte en arrière-plan.
+	"""
+	background_tasks.add_task(run_scraping_pipeline)
+	return {"status": "started", "message": "Le pipeline de collecte a été lancé en arrière-plan."}
+
+
 @router.post("/review", response_model=ReviewResponse)
 def generate_review(
 	payload: ReviewRequest,
+	background_tasks: BackgroundTasks,
 	pipeline: AIPipeline = Depends(get_pipeline),
 ) -> ReviewResponse:
+	# On lance la mise à jour en arrière-plan et on retourne ce qu'on a
+	background_tasks.add_task(run_scraping_pipeline)
 	return pipeline.run(topic=payload.topic, limit=payload.limit)
 
 
-@router.post("/ai/translate", response_model=TranslationResponse)
+@router.post("/translate", response_model=TranslationResponse)
 def translate(payload: TranslationRequest):
     """
     Endpoint pour traduire un résumé d'article.

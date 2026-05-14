@@ -1,7 +1,7 @@
 """
 Export Service — Person 5 Module (Upgraded)
 Multi-format export system:
-  • PDF — professional report with cover page, sections, charts placeholder
+  • PDF — professional magazine-quality report with design system
   • Excel — multi-sheet workbook with styled headers
   • CSV — flat tabular export
   • JSON — full structured data
@@ -15,42 +15,16 @@ import csv
 import json
 import uuid
 import zipfile
+import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from fpdf import FPDF
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
+from backend.services.pdf_designer import ReviewPDF
+
 logger = logging.getLogger(__name__)
-
-
-# ──────────────────────────────────────────────────────────
-# PDF CLASS
-# ──────────────────────────────────────────────────────────
-
-class ReviewPDF(FPDF):
-    """Custom PDF with branded header and footer."""
-
-    def header(self):
-        self.set_font("DejaVu", "", 16)
-        self.set_text_color(20, 50, 100)
-        self.cell(
-            0, 12, "Daily Sports Press Review",
-            new_x="LMARGIN", new_y="NEXT", align="C",
-        )
-        self.set_draw_color(200, 200, 200)
-        self.set_line_width(0.5)
-        self.line(15, self.get_y(), 195, self.get_y())
-        self.ln(5)
-
-    def footer(self):
-        self.set_y(-15)
-        self.set_font("DejaVu", "", 9)
-        self.set_text_color(150, 150, 150)
-        self.set_draw_color(200, 200, 200)
-        self.line(15, self.get_y() - 2, 195, self.get_y() - 2)
-        self.cell(0, 10, f"Page {self.page_no()}", align="C")
 
 
 # ──────────────────────────────────────────────────────────
@@ -144,206 +118,71 @@ class ExportService:
         return sorted(files, key=lambda x: x["modified_at"], reverse=True)
 
     # ──────────────────────────────────────────────────────
-    # PDF EXPORT
+    # PDF EXPORT  (Professional Magazine-Quality Design)
     # ──────────────────────────────────────────────────────
 
     def generate_pdf(self, review_data: dict, filename: str = "review.pdf") -> str:
-        """Generate a professionally formatted PDF report."""
-        pdf = ReviewPDF()
+        """Generate a professionally formatted PDF report with magazine-quality design."""
+        # Font setup
+        body_font = "Helvetica"
+        if os.path.exists(self.font_path):
+            body_font = "DejaVu"
 
-        # Load font
-        try:
-            pdf.add_font("DejaVu", "", self.font_path, uni=True)
-            font_family = "DejaVu"
-        except Exception as e:
-            logger.warning(f"Could not load DejaVu font, falling back to default: {e}")
-            font_family = "Helvetica"
+        date_str = review_data.get("generated_at", review_data.get("date", ""))[:10]
+        metadata = review_data.get("metadata", {})
+        sections = review_data.get("sections", {})
+
+        # Create PDF with design system
+        pdf = ReviewPDF(body_font=body_font, report_date=date_str)
+
+        if body_font == "DejaVu":
+            try:
+                # Register the same TTF for both regular and bold so every
+                # set_font("DejaVu", "B", ...) call works without crashing on
+                # Arabic / non-latin Unicode characters.
+                pdf.add_font("DejaVu", "",  self.font_path, uni=True)
+                pdf.add_font("DejaVu", "B", self.font_path, uni=True)
+            except TypeError:
+                # Older fpdf2 builds don't accept the uni kwarg
+                try:
+                    pdf.add_font("DejaVu", "",  self.font_path)
+                    pdf.add_font("DejaVu", "B", self.font_path)
+                except Exception as e:
+                    logger.warning(f"Could not load DejaVu font, falling back: {e}")
+                    pdf.body_font = "Helvetica"
+            except Exception as e:
+                logger.warning(f"Could not load DejaVu font, falling back: {e}")
+                pdf.body_font = "Helvetica"
 
         pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
 
-        # ── COVER PAGE ──
-        pdf.set_font(font_family, "", 24)
-        pdf.set_text_color(30, 30, 30)
-        pdf.ln(20)
-        pdf.cell(
-            0, 12,
-            review_data.get("title", "Sports Press Review"),
-            new_x="LMARGIN", new_y="NEXT", align="C",
+        # 1) Cover Page
+        pdf.draw_cover(
+            title=review_data.get("title", "Daily Sports Press Review"),
+            date_str=date_str,
+            metadata=metadata,
         )
 
-        pdf.set_font(font_family, "", 12)
-        pdf.set_text_color(100, 100, 100)
-        date_str = review_data.get("generated_at", review_data.get("date", ""))[:10]
-        pdf.cell(0, 8, f"Generated: {date_str}", new_x="LMARGIN", new_y="NEXT", align="C")
-
-        # Statistics bar
-        metadata = review_data.get("metadata", {})
-        pdf.ln(10)
-        pdf.set_font(font_family, "", 11)
-        pdf.set_text_color(60, 60, 60)
-        stats_line = (
-            f"Total Articles: {metadata.get('total_articles', 0)}  |  "
-            f"Sources: {metadata.get('sources_count', 0)}  |  "
-            f"Categories: {metadata.get('categories_count', 0)}  |  "
-            f"Avg Importance: {metadata.get('avg_importance', 0):.1%}"
-        )
-        pdf.cell(0, 8, stats_line, new_x="LMARGIN", new_y="NEXT", align="C")
-        pdf.ln(10)
-
-        # ── EXECUTIVE SUMMARY ──
-        sections = review_data.get("sections", {})
+        # 2) Executive Summary
         exec_summary = sections.get("executive_summary", {})
-        if exec_summary and exec_summary.get("text"):
-            pdf.set_font(font_family, "", 14)
-            pdf.set_text_color(200, 50, 50)
-            pdf.cell(0, 10, exec_summary.get("title", "Executive Summary"), new_x="LMARGIN", new_y="NEXT")
-            pdf.set_draw_color(200, 50, 50)
-            pdf.line(15, pdf.get_y(), 120, pdf.get_y())
-            pdf.ln(4)
+        pdf.draw_executive_summary(exec_summary)
 
-            pdf.set_font(font_family, "", 10)
-            pdf.set_text_color(50, 50, 50)
-            pdf.multi_cell(0, 6, exec_summary["text"])
-            pdf.ln(4)
-
-            # Credibility indicator bar
-            avg_cred = exec_summary.get("stats", {}).get("avg_credibility", 0)
-            pdf.set_font(font_family, "", 9)
-            pdf.set_text_color(80, 80, 80)
-            cred_label = f"Overall Credibility: {avg_cred:.0%}"
-            if avg_cred >= 0.8:
-                cred_label += " — HIGH"
-                pdf.set_text_color(34, 139, 34)
-            elif avg_cred >= 0.5:
-                cred_label += " — MEDIUM"
-                pdf.set_text_color(200, 150, 0)
-            else:
-                cred_label += " — LOW"
-                pdf.set_text_color(200, 50, 50)
-            pdf.cell(0, 6, cred_label, new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(6)
-
-        # ── TOP HEADLINES ──
-        pdf.set_font(font_family, "", 16)
-        pdf.set_text_color(40, 80, 150)
-        pdf.cell(0, 10, "Top Headlines", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_draw_color(40, 80, 150)
-        pdf.line(15, pdf.get_y(), 100, pdf.get_y())
-        pdf.ln(3)
-
-        pdf.set_font(font_family, "", 11)
-        pdf.set_text_color(50, 50, 50)
+        # 3) Top Headlines
         headlines = review_data.get(
             "highlights", review_data.get("top_headlines", [])
         )[:5]
-        for i, headline in enumerate(headlines, 1):
-            pdf.set_x(pdf.l_margin + 5)
-            pdf.multi_cell(0, 7, f"{i}. {headline}")
-        pdf.ln(5)
+        pdf.draw_headlines(headlines)
 
-        # ── SUMMARIES SECTION ──
-        sections = review_data.get("sections", {})
-        summaries_section = sections.get("summaries", {})
-        if summaries_section.get("items"):
-            pdf.add_page()
-            pdf.set_font(font_family, "", 16)
-            pdf.set_text_color(40, 80, 150)
-            pdf.cell(0, 10, "Article Summaries", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_draw_color(40, 80, 150)
-            pdf.line(15, pdf.get_y(), 120, pdf.get_y())
-            pdf.ln(5)
-
-            for item in summaries_section["items"][:8]:
-                pdf.set_font(font_family, "", 12)
-                pdf.set_text_color(20, 20, 20)
-                pdf.multi_cell(0, 6, item.get("title", ""))
-
-                pdf.set_font(font_family, "", 9)
-                pdf.set_text_color(120, 120, 120)
-                importance = float(item.get("importance", 0))
-                pdf.cell(
-                    0, 5,
-                    f"Source: {item.get('source', '')} | Sport: {item.get('sport', '')} | Score: {importance:.0%}",
-                    new_x="LMARGIN", new_y="NEXT",
-                )
-
-                pdf.set_font(font_family, "", 10)
-                pdf.set_text_color(60, 60, 60)
-                pdf.multi_cell(0, 5, item.get("summary", "No summary available."))
-                pdf.ln(6)
-
-        # ── CATEGORIES / ARTICLES ──
+        # 4) Category Sections (one per sport)
         for sport, articles in review_data.get("categories", {}).items():
-            pdf.add_page()
+            if articles:
+                pdf.draw_category(sport, articles)
 
-            # Sport Header
-            pdf.set_font(font_family, "", 18)
-            pdf.set_text_color(200, 50, 50)
-            pdf.set_fill_color(245, 245, 245)
-            pdf.cell(
-                0, 12, f" {sport.upper()} ",
-                new_x="LMARGIN", new_y="NEXT", fill=True,
-            )
-            pdf.ln(5)
-
-            for art in articles[:10]:
-                pdf.set_font(font_family, "", 12)
-                pdf.set_text_color(20, 20, 20)
-                pdf.multi_cell(0, 6, art.get("title", "Untitled"))
-
-                pdf.set_font(font_family, "", 9)
-                pdf.set_text_color(120, 120, 120)
-                score = float(art.get("importance_score", 0))
-                source = art.get("source", "Unknown")
-                pdf.cell(
-                    0, 5,
-                    f"Source: {source} | Score: {score:.2f}",
-                    new_x="LMARGIN", new_y="NEXT",
-                )
-
-                pdf.set_font(font_family, "", 10)
-                pdf.set_text_color(60, 60, 60)
-                pdf.multi_cell(0, 5, art.get("summary", "No summary available."))
-                pdf.ln(5)
-
-        # ── TRENDS PAGE ──
+        # 5) Trends & Insights
         trends = sections.get("trends", {})
-        if trends:
-            pdf.add_page()
-            pdf.set_font(font_family, "", 16)
-            pdf.set_text_color(40, 80, 150)
-            pdf.cell(0, 10, "Trends & Insights", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_draw_color(40, 80, 150)
-            pdf.line(15, pdf.get_y(), 120, pdf.get_y())
-            pdf.ln(5)
+        pdf.draw_trends(trends)
 
-            # Trending sports
-            pdf.set_font(font_family, "", 13)
-            pdf.set_text_color(50, 50, 50)
-            pdf.cell(0, 8, "Trending Sports:", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font(font_family, "", 11)
-            for ts in trends.get("trending_sports", []):
-                pdf.set_x(pdf.l_margin + 5)
-                pdf.cell(
-                    0, 6,
-                    f"• {ts.get('sport', '')} — {ts.get('count', 0)} articles",
-                    new_x="LMARGIN", new_y="NEXT",
-                )
-            pdf.ln(5)
-
-            # Top keywords
-            pdf.set_font(font_family, "", 13)
-            pdf.cell(0, 8, "Top Keywords:", new_x="LMARGIN", new_y="NEXT")
-            pdf.set_font(font_family, "", 11)
-            for kw in trends.get("top_keywords", [])[:10]:
-                pdf.set_x(pdf.l_margin + 5)
-                pdf.cell(
-                    0, 6,
-                    f"• {kw.get('keyword', '')} ({kw.get('count', 0)}x)",
-                    new_x="LMARGIN", new_y="NEXT",
-                )
-
+        # Output
         filepath = self._get_filepath(filename)
         pdf.output(filepath)
         logger.info(f"PDF exported: {filepath}")
@@ -400,8 +239,6 @@ class ExportService:
         ws_overview.append(["Total Articles", metadata.get("total_articles", 0)])
         ws_overview.append(["Sources Count", metadata.get("sources_count", 0)])
         ws_overview.append(["Categories Count", metadata.get("categories_count", 0)])
-        ws_overview.append(["Avg Importance", f"{metadata.get('avg_importance', 0):.1%}"])
-        ws_overview.append(["Avg Credibility", f"{metadata.get('avg_credibility', 0):.1%}"])
         ws_overview.append([])
 
         ws_overview.append(["Top Headlines"])
@@ -456,7 +293,7 @@ class ExportService:
 
         # ── Sources Sheet ──
         ws_sources = wb.create_sheet(title="Sources")
-        source_headers = ["Source", "Articles", "Avg Importance", "Credibility"]
+        source_headers = ["Source", "Articles"]
         style_headers(ws_sources, source_headers)
         ws_sources.column_dimensions["A"].width = 30
 
@@ -465,8 +302,6 @@ class ExportService:
         for row_idx, src in enumerate(top_sources, 2):
             ws_sources.cell(row=row_idx, column=1, value=src.get("source", ""))
             ws_sources.cell(row=row_idx, column=2, value=src.get("article_count", 0))
-            ws_sources.cell(row=row_idx, column=3, value=src.get("avg_importance", 0))
-            ws_sources.cell(row=row_idx, column=4, value=src.get("credibility", 0))
 
         filepath = self._get_filepath(filename)
         wb.save(filepath)

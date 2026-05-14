@@ -20,6 +20,7 @@ from backend.schemas.dashboard_schema import (
     DashboardResponse,
     DashboardFilterParams,
     KPICard,
+    QuickStats,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,51 @@ export_service = ExportService()
 # ──────────────────────────────────────────────────────────
 # DASHBOARD DATA ENDPOINTS
 # ──────────────────────────────────────────────────────────
+
+@router.get(
+    "/stats",
+    response_model=QuickStats,
+    summary="Get quick statistics",
+    description="Returns high-level statistics for the landing page.",
+)
+async def get_stats():
+    """Get quick stats for the frontend homepage."""
+    try:
+        # Tenter de récupérer la dernière revue
+        review = review_service.get_latest_review()
+        
+        # Si pas de revue, on essaie d'en générer une rapide ou on renvoie des zéros
+        if not review:
+            logger.info("No cached review for stats, returning empty metrics.")
+            return QuickStats(
+                total_articles=0,
+                active_sources=0,
+                average_ai_score=85,
+                covered_sports=0,
+                today_count=0
+            )
+
+        articles = review.get("articles", [])
+        kpis = dashboard_service.get_kpi_cards(articles)
+        
+        return QuickStats(
+            total_articles=kpis.get("total_articles", 0),
+            active_sources=kpis.get("active_sources", 0),
+            average_ai_score=int(kpis.get("avg_credibility", 0.85) * 100),
+            covered_sports=kpis.get("categories_count", 0),
+            today_count=kpis.get("total_articles", 0)
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_stats: {e}", exc_info=True)
+        return QuickStats(
+            total_articles=0,
+            active_sources=0,
+            average_ai_score=85,
+            covered_sports=0,
+            today_count=0
+        )
+
 
 @router.get(
     "/dashboard-data",
@@ -171,16 +217,35 @@ async def get_dashboard_analytics(
     """Full analytics endpoint with date range and multi-filter support."""
     try:
         review = review_service.get_latest_review()
-        if not review:
-            review = review_service.generate_review()
+        
+        # Fallback : Si pas de revue aujourd'hui, on récupère les articles de la DB directement
+        articles = []
+        if review and review.get("articles"):
+            articles = review.get("articles")
+        else:
+            logger.info("No today's review, fetching latest articles from DB for dashboard...")
+            from backend.database.db import SessionLocal
+            from backend.database.models import Article
+            from datetime import datetime
+            db = SessionLocal()
+            try:
+                # On récupère les 100 derniers articles pour avoir des stats
+                db_articles = db.query(Article).order_by(Article.collected_at.desc()).limit(100).all()
+                articles = review_service._convert_articles_to_dict(db_articles)
+                # On crée une fausse revue pour le dashboard service
+                review = {
+                    "date": datetime.now().isoformat(),
+                    "articles": articles,
+                    "sections": {}
+                }
+            finally:
+                db.close()
 
-        if not review or not review.get("articles"):
+        if not articles:
             raise HTTPException(
                 status_code=404,
-                detail="No review available. Please generate a review first.",
+                detail="Aucun article trouvé en base de données pour générer les statistiques.",
             )
-
-        articles = review.get("articles", [])
 
         # Apply filters
         filtered = dashboard_service.filter_articles(
@@ -194,10 +259,15 @@ async def get_dashboard_analytics(
         if date_from or date_to:
             date_filtered = []
             for a in filtered:
-                pub = a.get("published_date", "")
+                pub = a.get("published_at", "")
                 if not pub:
                     continue
-                pub_date = pub.split("T")[0] if "T" in pub else pub
+                # Gérer datetime ou string
+                if hasattr(pub, "isoformat"):
+                    pub_date = pub.date().isoformat()
+                else:
+                    pub_date = str(pub).split(" ")[0].split("T")[0]
+                    
                 if date_from and pub_date < date_from:
                     continue
                 if date_to and pub_date > date_to:
@@ -242,7 +312,7 @@ async def get_news():
 
 
 @router.get(
-    "/sources",
+    "/dashboard/sources",
     summary="Get source list with credibility",
     description="Returns unique sources with their credibility metrics.",
 )
@@ -255,10 +325,27 @@ async def get_sources():
     for a in articles:
         src = a.get("source", "Unknown")
         if src not in sources_map:
-            sources_map[src] = {"name": src, "credibility_score": a.get("credibility", 0.75), "count": 0}
+            sources_map[src] = {"name": src, "credibility_score": a.get("credibility_score", 0.75), "count": 0}
         sources_map[src]["count"] += 1
 
     return {"sources": list(sources_map.values())}
+
+
+@router.get(
+    "/sports",
+    summary="Get list of all 15 sports categories",
+    description="Returns the full list of 15 sport categories supported by the NLP engine.",
+)
+async def get_sports():
+    """Get the full list of 15 sports from the NLP service."""
+    # Liste complète des 15 catégories définies dans nlp_service.py
+    sports = [
+        "Football", "Tennis", "Basketball", "Rugby", "Cyclisme", 
+        "Athlétisme", "Natation", "Handball", "Volleyball", 
+        "Sports Mécaniques", "Combat", "Golf", "Hockey", 
+        "Équitation", "Ski"
+    ]
+    return {"sports": sorted(sports), "total_categories": len(sports)}
 
 
 # ──────────────────────────────────────────────────────────
@@ -373,11 +460,15 @@ async def get_review_history():
 # ──────────────────────────────────────────────────────────
 
 def _require_review():
-    """Helper: get current review or raise 404."""
+    """Helper: get current review or generate one if missing."""
     review = review_service.get_latest_review()
     if not review:
+        logger.info("No review found for export, generating one now...")
+        review = review_service.generate_review()
+        
+    if not review:
         raise HTTPException(
-            status_code=404, detail="No review available to export."
+            status_code=404, detail="No review available to export and generation failed."
         )
     return review
 
@@ -390,10 +481,12 @@ def _require_review():
 async def export_pdf():
     """Export latest review to PDF."""
     review = _require_review()
+    # Sanitize date for filename (Windows doesn't like ':')
+    date_str = review.get('date', 'latest').replace(':', '-')
     try:
         filename = export_service.generate_pdf(
             review,
-            filename=f"review_{review.get('date', 'latest')}.pdf",
+            filename=f"review_{date_str}.pdf",
         )
         return {
             "status": "success",
@@ -416,10 +509,11 @@ async def export_pdf():
 async def export_excel():
     """Export latest review to Excel."""
     review = _require_review()
+    date_str = review.get('date', 'latest').replace(':', '-')
     try:
         filename = export_service.generate_excel(
             review,
-            filename=f"review_{review.get('date', 'latest')}.xlsx",
+            filename=f"review_{date_str}.xlsx",
         )
         return {
             "status": "success",
@@ -442,10 +536,11 @@ async def export_excel():
 async def export_csv():
     """Export latest review to CSV."""
     review = _require_review()
+    date_str = review.get('date', 'latest').replace(':', '-')
     try:
         filename = export_service.generate_csv(
             review,
-            filename=f"review_{review.get('date', 'latest')}.csv",
+            filename=f"review_{date_str}.csv",
         )
         return {
             "status": "success",
@@ -468,10 +563,11 @@ async def export_csv():
 async def export_json():
     """Export latest review to JSON."""
     review = _require_review()
+    date_str = review.get('date', 'latest').replace(':', '-')
     try:
         filename = export_service.generate_json(
             review,
-            filename=f"review_{review.get('date', 'latest')}.json",
+            filename=f"review_{date_str}.json",
         )
         return {
             "status": "success",
@@ -492,12 +588,13 @@ async def export_json():
     description="Generate ZIP with all format exports (PDF, Excel, CSV, JSON).",
 )
 async def export_all():
-    """Export review in all formats as a ZIP file."""
+    """Export review in all formats (ZIP)."""
     review = _require_review()
+    date_str = review.get('date', 'latest').replace(':', '-')
     try:
         filename = export_service.generate_zip(
             review,
-            filename=f"review_{review.get('date', 'latest')}_all.zip",
+            filename=f"review_bundle_{date_str}.zip",
         )
         return {
             "status": "success",

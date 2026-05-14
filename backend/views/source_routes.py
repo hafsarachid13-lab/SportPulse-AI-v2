@@ -10,4 +10,4 @@ controller = SourceController()
 
 @router.get("")
 def get_sources(db: Session = Depends(get_db)):
-    return {"sources": controller.list_sources(db)}
+    return controller.list_sources(db)
