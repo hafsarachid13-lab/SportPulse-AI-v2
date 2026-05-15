@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -69,6 +69,9 @@ class AuthService:
 				detail="Inactive account",
 			)
 
+		user.last_login = datetime.now()
+		db.commit()
+
 		expires_delta = timedelta(days=30) if payload.remember_me else None
 		token = create_access_token(subject=str(user.id), expires_delta=expires_delta)
 		return TokenResponse(access_token=token)
@@ -117,5 +120,6 @@ class AuthService:
 			email=user.email,
 			role=user.role,
 			is_active=user.is_active,
+			last_login=user.last_login,
 		)
 

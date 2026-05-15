@@ -21,7 +21,7 @@ def _build_default_mysql_url() -> str:
     driver = os.getenv("MYSQL_DRIVER", "mysql+pymysql")
     host = os.getenv("MYSQL_HOST", "localhost")
     port = os.getenv("MYSQL_PORT", "3306")
-    database = os.getenv("MYSQL_DATABASE", "veille_sportive")
+    database = os.getenv("MYSQL_DATABASE", "vei_sportive")
     user = os.getenv("MYSQL_USER", "root")
     password = os.getenv("MYSQL_PASSWORD", "")
     charset = os.getenv("MYSQL_CHARSET", "utf8mb4")

@@ -108,9 +108,12 @@ class DashboardService:
         by_source = Counter(a.get("source", "Unknown") for a in articles)
 
         by_hour: Dict[str, int] = defaultdict(int)
+        by_date_sport: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        
         for article in articles:
             try:
                 pub_date = article.get("published_at", "")
+                sport = article.get("sport_category", "Général")
                 if pub_date:
                     # Gérer si c'est un objet datetime ou une string
                     if hasattr(pub_date, "isoformat"):
@@ -118,13 +121,18 @@ class DashboardService:
                     else:
                         day = str(pub_date).split(" ")[0].split("T")[0]
                     by_hour[day] += 1
+                    by_date_sport[day][sport] += 1
             except Exception:
                 pass
+
+        # Convert nested defaultdicts to regular dicts for JSON serialization
+        formatted_by_date_sport = {k: dict(v) for k, v in by_date_sport.items()}
 
         return {
             "total": len(articles),
             "by_source": dict(by_source.most_common(10)),
             "by_hour": dict(sorted(by_hour.items())),
+            "by_date_sport": formatted_by_date_sport,
             "time_window": time_window,
             "trend": "increasing" if len(articles) > 5 else "stable",
         }

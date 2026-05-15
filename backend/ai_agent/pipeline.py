@@ -38,12 +38,15 @@ def save_articles_to_db(articles_data):
                 pub_date = datetime.now()
 
             # Gestion de la Source
-            source_name = data.get("source", "Source Inconnue")
-            source = db.query(Source).filter(Source.name == source_name).first()
-            if not source:
-                source = Source(name=source_name, url=url or "http://inconnu.com", type="scraping")
-                db.add(source)
-                db.flush()
+            source_id = data.get("source_id")
+            if not source_id:
+                source_name = data.get("source", "Source Inconnue")
+                source = db.query(Source).filter(Source.name == source_name).first()
+                if not source:
+                    source = Source(name=source_name, url=url or "http://inconnu.com", type="scraping")
+                    db.add(source)
+                    db.flush()
+                source_id = source.id
 
             # Création de l'article
             new_article = Article(
@@ -52,14 +55,14 @@ def save_articles_to_db(articles_data):
                 summary=data.get("summary", ""),
                 url=url,
                 published_at=pub_date,
-                collected_at=datetime.now(), # Forcer à MAINTENANT
+                collected_at=datetime.now(),
                 sport_category=data.get("sport_category", "Général"),
                 sport_id=sports_map.get(data.get("sport_category", "").lower()),
                 importance_score=float(data.get("importance_score", 0.0)),
                 credibility_score=float(data.get("credibility_score", 0.75)),
                 langue=data.get("language", "fr"),
                 image_url=data.get("image_url"),
-                source_id=source.id,
+                source_id=source_id,
                 status=ArticleStatus.PENDING.value
             )
             db.add(new_article)

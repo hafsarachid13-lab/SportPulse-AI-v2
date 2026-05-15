@@ -692,7 +692,6 @@ INSERT INTO `users` (`id`, `username`, `email`, `password_hash`, `role`, `is_act
 (2, 'journaliste1', 'journaliste1@veille-sport.fr', 'edd5b96346b5e13b388e04671f38987f$7b91b44127e4c0004e41a713fbe4db01f9084851b3a3dfd328dfa31ccf290445', 'journaliste', 1, 'editor', '2026-04-26 18:02:43', NULL),
 (3, 'majdoubisaida72', 'majdoubisaida72@gmail.com', '9fce9145ac0b98fe80cdbe2c8e0e2c2c$d291da8363f29946e31a8570f3e60deac4459912039bef7a11e976e451eb058b', 'admin', 1, NULL, '2026-04-26 21:48:22', NULL),
 (4, 'test', 'test@example.com', 'd45ea7b45ede4c198ee96f89993b5b61$5386f6b4c71efda588be255f36a0ff879cd6ce799c6dbb8ed842f16a394b64a7', 'journaliste', 1, NULL, '2026-05-01 13:53:18', NULL),
-(5, 'idsmery25', 'e', '9872e92c9a58d7ca11f0a1f925c99734$189dd643ab8d50aff77ad83473939c97947888cab021c8198639bd5d50bf320e', 'journaliste', 1, NULL, '2026-05-03 18:07:09', NULL),
 (6, 'hafsa_journalist', 'hafsa_rachid@um5.ac.ma', 'f036730101faa9fd2e4c75f3ff93dc71$43ef804442799106fabfbb8682d7de9db72671d04a3ee5f5580c0fc8ec892a6e', 'journaliste', 1, 'editor', '2026-05-11 17:08:00', NULL),
 (7, 'hafsa_admin', 'hafsarachid13@gmail.com', 'f036730101faa9fd2e4c75f3ff93dc71$43ef804442799106fabfbb8682d7de9db72671d04a3ee5f5580c0fc8ec892a6e', 'admin', 1, 'full', '2026-05-11 17:08:00', NULL);
 

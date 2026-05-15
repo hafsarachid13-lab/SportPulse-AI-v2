@@ -216,30 +216,33 @@ async def get_dashboard_analytics(
 ):
     """Full analytics endpoint with date range and multi-filter support."""
     try:
-        review = review_service.get_latest_review()
+        # Le Dashboard Analytics récupère toujours les 7 derniers jours indépendamment de la revue quotidienne
+        from backend.database.db import SessionLocal
+        from backend.database.models import Article
+        from datetime import datetime, timedelta
         
-        # Fallback : Si pas de revue aujourd'hui, on récupère les articles de la DB directement
-        articles = []
-        if review and review.get("articles"):
-            articles = review.get("articles")
-        else:
-            logger.info("No today's review, fetching latest articles from DB for dashboard...")
-            from backend.database.db import SessionLocal
-            from backend.database.models import Article
-            from datetime import datetime
-            db = SessionLocal()
-            try:
-                # On récupère les 100 derniers articles pour avoir des stats
+        db = SessionLocal()
+        try:
+            last_week_start = datetime.now() - timedelta(days=7)
+            logger.info("Fetching articles from the last 7 days for the dashboard...")
+            
+            # On récupère tous les articles de la semaine
+            db_articles = db.query(Article).filter(Article.collected_at >= last_week_start).order_by(Article.published_at.desc()).all()
+            
+            if not db_articles:
+                # Fallback si aucun article dans les 7 jours: on prend les 100 derniers globaux
                 db_articles = db.query(Article).order_by(Article.collected_at.desc()).limit(100).all()
-                articles = review_service._convert_articles_to_dict(db_articles)
-                # On crée une fausse revue pour le dashboard service
-                review = {
-                    "date": datetime.now().isoformat(),
-                    "articles": articles,
-                    "sections": {}
-                }
-            finally:
-                db.close()
+                
+            articles = review_service._convert_articles_to_dict(db_articles)
+            
+            # On crée une fausse revue uniquement pour le dashboard_service (qui attend ce format)
+            review = {
+                "date": datetime.now().isoformat(),
+                "articles": articles,
+                "sections": {}
+            }
+        finally:
+            db.close()
 
         if not articles:
             raise HTTPException(

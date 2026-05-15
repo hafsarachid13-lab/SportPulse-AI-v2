@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
@@ -30,3 +31,4 @@ class AuthUser(BaseModel):
     email: EmailStr
     role: Literal["admin", "journaliste"]
     is_active: bool
+    last_login: datetime | None = None

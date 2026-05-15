@@ -15,30 +15,102 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
 }
 
-# REPERTOIRE MONDIAL DES SOURCES SPORTIVES
-SPORTS_SOURCES = [
-    {"name": "Reuters Sports", "url": "https://www.reuters.com/sports/", "rss": "https://www.reuters.com/business/sports/rss", "lang": "en", "country": "Global", "credibility": 98},
-    {"name": "AP Sports", "url": "https://apnews.com/hub/sports", "rss": None, "lang": "en", "country": "Global", "credibility": 98},
-    {"name": "FIFA", "url": "https://www.fifa.com/", "rss": "https://www.fifa.com/rss/index.xml", "lang": "en", "country": "Global", "credibility": 100},
-    {"name": "UEFA", "url": "https://www.uefa.com/", "rss": "https://www.uefa.com/rss/index.xml", "lang": "en", "country": "Europe", "credibility": 100},
-    {"name": "CAF", "url": "https://www.cafonline.com/", "rss": None, "lang": "fr", "country": "Africa", "credibility": 95},
-    {"name": "L'Equipe", "url": "https://www.lequipe.fr/", "rss": "https://xml.lequipe.fr/rss/uneseule/actu_rss.xml", "lang": "fr", "country": "France", "credibility": 95},
-    {"name": "RMC Sport", "url": "https://rmcsport.bfmtv.com/", "rss": "https://rmcsport.bfmtv.com/rss/football/", "lang": "fr", "country": "France", "credibility": 90},
-    {"name": "Sky Sports", "url": "https://www.skysports.com/", "rss": "https://www.skysports.com/rss/12040", "lang": "en", "country": "UK", "credibility": 95},
-    {"name": "ESPN", "url": "https://www.espn.com/", "rss": "https://www.espn.com/espn/rss/news", "lang": "en", "country": "USA", "credibility": 95},
-    {"name": "Marca", "url": "https://www.marca.com/", "rss": "https://e00-marca.uecdn.es/rss/portada.xml", "lang": "es", "country": "Spain", "credibility": 88},
-    {"name": "Hesport", "url": "https://www.hesport.com/", "rss": "https://www.hesport.com/feed/", "lang": "ar", "country": "Morocco", "credibility": 85},
-    {"name": "Arryadia", "url": "https://arryadia.snrt.ma/", "rss": "https://arryadia.snrt.ma/rss", "lang": "fr", "country": "Morocco", "credibility": 95}
-]
+# La liste des sources est désormais récupérée depuis la base de données.
 
 def clean_text(text: str) -> str:
     if not text: return ""
     return " ".join(text.split())
 
+def validate_source_url(url: str) -> Dict:
+    """Valide si une URL est exploitable (RSS ou Scraping classique sans blocage majeur)."""
+    import requests
+    from bs4 import BeautifulSoup
+    
+    # Validation du format basique
+    if not url.startswith("http"):
+        url = "https://" + url
+        
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        if response.status_code in [401, 403, 429]:
+            return {
+                "is_valid": False,
+                "detected_type": None,
+                "reliability_score": 0,
+                "message": f"Accès bloqué par le serveur (Erreur HTTP {response.status_code})"
+            }
+        
+        if response.status_code != 200:
+            return {
+                "is_valid": False,
+                "detected_type": None,
+                "reliability_score": 0,
+                "message": f"Le serveur a répondu avec une erreur {response.status_code}"
+            }
+            
+        html = response.text
+        soup = BeautifulSoup(html, "lxml")
+        
+        title = soup.title.string if soup.title else ""
+        if title and ("Just a moment..." in title or "Attention Required!" in title):
+            return {
+                "is_valid": False,
+                "detected_type": None,
+                "reliability_score": 0,
+                "message": "Protection Anti-Bot détectée (ex: Cloudflare). Scraping bloqué."
+            }
+            
+        rss_links = soup.find_all("link", type=lambda t: t in ["application/rss+xml", "application/atom+xml"])
+        if rss_links:
+            return {
+                "is_valid": True,
+                "detected_type": "rss",
+                "reliability_score": 95,
+                "message": "Flux RSS détecté. Source hautement fiable pour la collecte."
+            }
+            
+        article_links = [h.find("a") for h in soup.find_all(["h2", "h3"]) if h.find("a")]
+        
+        if len(article_links) >= 3:
+            return {
+                "is_valid": True,
+                "detected_type": "scraping",
+                "reliability_score": 75,
+                "message": "Aucun RSS trouvé, mais la structure de la page permet le web scraping."
+            }
+        else:
+            return {
+                "is_valid": False,
+                "detected_type": None,
+                "reliability_score": 0,
+                "message": "Aucun flux RSS trouvé et structure de la page non adaptée au scraping classique."
+            }
+            
+    except requests.exceptions.Timeout:
+        return {
+            "is_valid": False,
+            "detected_type": None,
+            "reliability_score": 0,
+            "message": "Le serveur met trop de temps à répondre (Timeout)."
+        }
+    except requests.exceptions.RequestException as e:
+        return {
+            "is_valid": False,
+            "detected_type": None,
+            "reliability_score": 0,
+            "message": f"Impossible de joindre l'URL fournie."
+        }
+
 def fetch_rss(source: Dict, limit: int) -> List[Dict]:
     articles = []
     try:
-        feed = feedparser.parse(source["rss"])
+        feed_url = source.get("rss") or source.get("url")
+        feed = feedparser.parse(feed_url)
         for entry in feed.entries[:limit]:
             # Conversion de la date RSS en datetime Python
             published_at = None
@@ -50,14 +122,14 @@ def fetch_rss(source: Dict, limit: int) -> List[Dict]:
             articles.append({
                 "title": entry.get("title", ""),
                 "url": entry.get("link", ""),
-                "source": source["name"],
+                "source": source.get("name", "Inconnue"),
                 "content_preview": clean_text(entry.get("summary", "")),
-                "lang": source["lang"],
-                "credibility": source["credibility"],
+                "lang": source.get("lang", "fr"),
+                "credibility": source.get("credibility", 75),
                 "published_at": published_at
             })
     except Exception as e:
-        logger.error(f"Error RSS {source['name']}: {e}")
+        logger.error(f"Error RSS {source.get('name')}: {e}")
     return articles
 
 def scrape_site(source: Dict, limit: int) -> List[Dict]:
@@ -73,13 +145,13 @@ def scrape_site(source: Dict, limit: int) -> List[Dict]:
                 articles.append({
                     "title": clean_text(tag.get_text()),
                     "url": full_url,
-                    "source": source["name"],
+                    "source": source.get("name", "Inconnue"),
                     "content_preview": "",
-                    "lang": source["lang"],
-                    "credibility": source["credibility"]
+                    "lang": source.get("lang", "fr"),
+                    "credibility": source.get("credibility", 75)
                 })
     except Exception as e:
-        logger.error(f"Error Scraping {source['name']}: {e}")
+        logger.error(f"Error Scraping {source.get('name')}: {e}")
     return articles
 
 def scrape_full_article(url: str) -> Dict:
@@ -181,41 +253,42 @@ def scrape_full_article(url: str) -> Dict:
         logger.warning(f"Scrape failed for {url}: {e}")
         return {"content": "", "image_url": None}
 
-def fetch_articles(limit_per_source: int = 3) -> List[Dict]:
-    all_articles = []
-    for source in SPORTS_SOURCES:
-        logger.info(f"Collecte : {source['name']}")
-        found = fetch_rss(source, limit_per_source) if source.get("rss") else scrape_site(source, limit_per_source)
-            
-        for article in found:
-            # 1. Scraping complet
-            extra_data = scrape_full_article(article["url"])
-            
-            # Mise à jour du titre si trouvé
-            if extra_data.get("title"):
-                article["title"] = extra_data["title"]
-            
-            article.update({k: v for k, v in extra_data.items() if k != "title"})
+def process_source(source: Dict, limit_per_source: int = 3) -> List[Dict]:
+    """Extrait les articles pour une source spécifique."""
+    logger.info(f"Collecte : {source.get('name')}")
+    
+    # Appel de la fonction selon le type
+    if source.get("type", "").lower() == "rss":
+        found = fetch_rss(source, limit_per_source)
+    else:
+        found = scrape_site(source, limit_per_source)
+        
+    source_articles = []
+    for article in found:
+        # 1. Scraping complet
+        extra_data = scrape_full_article(article["url"])
+        
+        # Mise à jour du titre si trouvé
+        if extra_data.get("title"):
+            article["title"] = extra_data["title"]
+        
+        article.update({k: v for k, v in extra_data.items() if k != "title"})
 
-            # 2. FILTRE DE DATE : On ne garde que les articles d'aujourd'hui
-            from datetime import date
-            today = date.today()
-            art_date = article.get("published_at")
-            
-            # Si on a une date, on vérifie qu'elle est d'aujourd'hui
-            if art_date and hasattr(art_date, 'date'):
-                if art_date.date() != today:
-                    logger.info(f"Article ignoré (trop ancien) : {article['title']}")
-                    continue
-            
-            all_articles.append(article)
-            time.sleep(0.1)
-            
-    return all_articles
+        # 2. FILTRE DE DATE : On ne garde que les articles d'aujourd'hui
+        from datetime import date
+        today = date.today()
+        art_date = article.get("published_at")
+        
+        if art_date and hasattr(art_date, 'date'):
+            if art_date.date() != today:
+                logger.info(f"Article ignoré (trop ancien) : {article['title']}")
+                continue
+        
+        source_articles.append(article)
+        time.sleep(0.1)
+        
+    return source_articles
 
 def get_sources_with_credibility():
-    """Retourne la liste des sources avec leur score de crédibilité normalisé (0-1)."""
-    return [
-        {"name": s["name"], "credibility_score": s["credibility"] / 100.0} 
-        for s in SPORTS_SOURCES
-    ]
+    """Fonction dépréciée si on gère la liste via DB, laissée pour rétrocompatibilité."""
+    return []

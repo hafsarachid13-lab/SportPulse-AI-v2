@@ -167,13 +167,14 @@ class ReviewService:
         
         db = SessionLocal()
         try:
+            from datetime import timedelta
             today_date = date.today()
             today_start = datetime.combine(today_date, dt_time.min)
             
             # 1. Revue finale déjà en base pour aujourd'hui ?
             last_revue = db.query(RevueDePresse).filter(RevueDePresse.date == today_date).first()
             
-            # 2. Articles collectés STRICTEMENT aujourd'hui
+            # 2. Articles collectés STRICTEMENT aujourd'hui (pour la revue quotidienne)
             articles_db = db.query(Article).filter(
                 Article.collected_at >= today_start
             ).order_by(Article.published_at.desc()).all()
@@ -220,6 +221,7 @@ class ReviewService:
                 "source": a.source.name if a.source else "Inconnue",
                 "image_url": a.image_url,
                 "langue": a.langue or "fr",
+                "keywords": a.metadata_json.get("keywords", []) if hasattr(a, "metadata_json") and a.metadata_json else [],
             })
         return self._deduplicate_articles(articles)
 
